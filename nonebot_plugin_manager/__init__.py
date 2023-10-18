@@ -5,7 +5,13 @@ from nonebot.params import ShellCommandArgs
 from nonebot.message import run_preprocessor
 from nonebot.exception import IgnoredException
 from nonebot.plugin import PluginMetadata, on_shell_command, get_loaded_plugins
-from nonebot.adapters.onebot.v11 import Bot, Event, MessageEvent, GroupMessageEvent
+from nonebot.adapters.onebot.v11 import Bot as V11Bot, Event as V11Event, MessageEvent as V11MessageEvent, GroupMessageEvent as V11GroupMessageEvent
+from nonebot.adapters.onebot.v12 import Bot as V12Bot, Event as V12Event, MessageEvent as V12MessageEvent, GroupMessageEvent as V12GroupMessageEvent
+from nonebot.adapters.red import Bot as RedBot, MessageEvent as RedMessageEvent, GroupMessageEvent as RedGroupMessageEvent
+from nonebot.adapters.red.event import Event as RedEvent
+from nonebot.internal.adapter.bot import Bot
+from typing import Union
+from nonebot_plugin_saa import Text, MessageFactory
 
 from .handle import Handle
 from .parser import npm_parser
@@ -17,7 +23,7 @@ __plugin_meta__ = PluginMetadata(
     usage="""看 README""",
     type="application",
     homepage="https://github.com/nonepkg/plugin-manager",
-    supported_adapters={"~onebot.v11"},
+    supported_adapters={"~onebot.v11+~onebot.v12+~red"},
 )
 
 npm = on_shell_command("npm", parser=npm_parser, priority=1)
@@ -25,21 +31,30 @@ npm = on_shell_command("npm", parser=npm_parser, priority=1)
 
 # 在 Matcher 运行前检测其是否启用
 @run_preprocessor
-async def _(matcher: Matcher, bot: Bot, event: Event):
+async def _(matcher: Matcher, bot: Bot, event: Union[V11Event, V12Event, RedEvent]):
     plugin = matcher.plugin_name
 
     conv = {
-        "user": [event.user_id] if hasattr(event, "user_id") else [],  # type: ignore
-        "group": [event.group_id] if hasattr(event, "group_id") else [],  # type: ignore
+        "user": [],  # type: ignore
+        "group": [],  # type: ignore
     }
-
+    if isinstance(bot, V11Bot) or isinstance(bot, V12Bot):
+        conv["user"] = [str(event.user_id)] # type: ignore
+    elif isinstance(bot, RedBot):
+        conv["user"] = [str(event.get_user_id())] # type: ignore
+    
+    if isinstance(event, V11GroupMessageEvent) or isinstance(event, V12GroupMessageEvent):
+        conv["group"] = [str(event.group_id)] # type: ignore
+    elif isinstance(event, RedGroupMessageEvent):
+        conv["group"] = [str(event.peerUin or event.group_id)] # type: ignore
+    
     if (
-        hasattr(event, "user_id")
-        and not hasattr(event, "group_id")
-        and str(event.user_id) in bot.config.superusers  # type: ignore
+        conv["user"]
+        and not conv["group"]
+        and conv["user"] in bot.config.superusers  # type: ignore
     ):
-        conv["user"] = []
-        conv["group"] = []
+        conv["user"] = [] # type: ignore
+        conv["group"] = [] # type: ignore
 
     plugin_manager.update_plugin(
         {
@@ -48,22 +63,34 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
         }
     )
 
-    if plugin and not plugin_manager.get_plugin(conv=conv, perm=1)[plugin]:
+    if plugin and not plugin_manager.get_plugin(conv=conv, perm=1)[plugin]: # type: ignore
         raise IgnoredException(f"Nonebot Plugin Manager has blocked {plugin} !")
 
 
 @npm.handle()
-async def _(bot: Bot, event: MessageEvent, args: Namespace = ShellCommandArgs()):
-    args.conv = {
-        "user": [event.user_id],
-        "group": [event.group_id] if isinstance(event, GroupMessageEvent) else [],
+async def _(bot: Bot, event: Union[V11MessageEvent, V12MessageEvent, RedMessageEvent], args: Namespace = ShellCommandArgs()):
+    
+    conv = {
+        "user": [],  # type: ignore
+        "group": [],  # type: ignore
     }
+    
+    if isinstance(bot, V11Bot) or isinstance(bot, V12Bot):
+        conv["user"] = [str(event.user_id)] # type: ignore
+    elif isinstance(bot, RedBot):
+        conv["user"] = [str(event.get_user_id())] # type: ignore
+    
+    if isinstance(event, V11GroupMessageEvent) or isinstance(event, V12GroupMessageEvent):
+        conv["group"] = [str(event.group_id)] # type: ignore
+    elif isinstance(event, RedGroupMessageEvent):
+        conv["group"] = [str(event.peerUin or event.group_id)] # type: ignore
+    args.conv = conv
     args.is_admin = (
-        event.sender.role in ["admin", "owner"]
-        if isinstance(event, GroupMessageEvent)
+        conv["user"][0] in ["admin", "owner"] # type: ignore
+        if isinstance(event, V11GroupMessageEvent) or isinstance(event, V12GroupMessageEvent) or isinstance(event, RedGroupMessageEvent)
         else False
     )
-    args.is_superuser = str(event.user_id) in bot.config.superusers
+    args.is_superuser = conv["user"][0] in bot.config.superusers # type: ignore
 
     if hasattr(args, "handle"):
         message = getattr(Handle, args.handle)(args)
@@ -77,35 +104,10 @@ async def _(bot: Bot, event: MessageEvent, args: Namespace = ShellCommandArgs())
                     message = message[15:]
                     i = i + 1
                 messages.append("\n".join(message[:15]) + f"\n【第{i}页-完】")
-                if isinstance(event, GroupMessageEvent):
-                    await bot.send_group_forward_msg(
-                        group_id=event.group_id,
-                        messages=[
-                            {
-                                "type": "node",
-                                "data": {
-                                    "name": "NBPM",
-                                    "uin": bot.self_id,
-                                    "content": msg,
-                                },
-                            }
-                            for msg in messages
-                        ],
-                    )
-                else:
-                    await bot.send_private_forward_msg(
-                        user_id=event.user_id,
-                        messages=[
-                            {
-                                "type": "node",
-                                "data": {
-                                    "name": "NBPM",
-                                    "uin": bot.self_id,
-                                    "content": msg,
-                                },
-                            }
-                            for msg in messages
-                        ],
-                    )
+                await MessageFactory(
+                    [Text(m) for m in messages]
+                ).send()
             else:
-                await bot.send(event, "\n".join(message[:30]))
+                await MessageFactory(
+                    [Text(m+"\n") for m in message]
+                ).send()
