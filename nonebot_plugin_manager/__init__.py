@@ -96,6 +96,7 @@ async def _(bot: Bot, event: Union[V11MessageEvent, V12MessageEvent, RedMessageE
         message = getattr(Handle, args.handle)(args)
         if message is not None:
             message = message.split("\n")
+            """
             if len(message) > 15:
                 i = 1
                 messages = []
@@ -104,10 +105,12 @@ async def _(bot: Bot, event: Union[V11MessageEvent, V12MessageEvent, RedMessageE
                     message = message[15:]
                     i = i + 1
                 messages.append("\n".join(message[:15]) + f"\n【第{i}页-完】")
+                # Todo: 使用合并转发消息发送
                 await MessageFactory(
                     [Text(m) for m in messages]
                 ).send()
             else:
-                await MessageFactory(
-                    [Text(m+"\n") for m in message]
-                ).send()
+            """
+            await MessageFactory(
+                [Text(m+"\n") for m in message]
+            ).send()
