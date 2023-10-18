@@ -14,11 +14,8 @@ class Handle:
             message = "插件商店：\n"
             plugin = get_store_plugin_list()
         else:
-            if args.conv["group"]:
+            if args.conv["group"] or args.is_superuser:
                 args.conv["user"] = []
-            elif args.is_superuser:
-                args.conv["user"] = []
-
             if args.user or args.group:
                 if args.is_superuser:
                     args.conv = {"user": args.user, "group": args.group}
@@ -44,9 +41,7 @@ class Handle:
 
     @classmethod
     def info(cls, args: Namespace) -> str:
-        if not args.is_superuser:
-            return "获取插件信息需要超级用户权限！"
-        return get_plugin_info(args.plugin)
+        return get_plugin_info(args.plugin) if args.is_superuser else "获取插件信息需要超级用户权限！"
 
     @classmethod
     def chmod(cls, args: Namespace) -> str:
@@ -90,11 +85,16 @@ class Handle:
                 args.plugin.remove(p)
                 result[p] = False
 
-        if args.user or args.group:
-            if args.is_superuser:
-                args.conv = {"user": args.user, "group": args.group}
-            else:
-                return "管理指定会话的插件需要超级用户权限！"
+        if (
+            args.user
+            and args.is_superuser
+            or not args.user
+            and args.group
+            and args.is_superuser
+        ):
+            args.conv = {"user": args.user, "group": args.group}
+        elif args.user or args.group:
+            return "管理指定会话的插件需要超级用户权限！"
 
         result.update(plugin_manager.block_plugin(args.plugin, args.conv))
 
@@ -107,10 +107,7 @@ class Handle:
 
         for plugin, value in result.items():
             message += "\n"
-            if value:
-                message += f"插件 {plugin} 禁用成功！"
-            else:
-                message += f"插件 {plugin} 不存在或已关闭编辑权限！"
+            message += f"插件 {plugin} 禁用成功！" if value else f"插件 {plugin} 不存在或已关闭编辑权限！"
         return message
 
     @classmethod
@@ -136,11 +133,16 @@ class Handle:
                 args.plugin.remove(p)
                 result[p] = False
 
-        if args.user or args.group:
-            if args.is_superuser:
-                args.conv = {"user": args.user, "group": args.group}
-            else:
-                return "管理指定会话的插件需要超级用户权限！"
+        if (
+            args.user
+            and args.is_superuser
+            or not args.user
+            and args.group
+            and args.is_superuser
+        ):
+            args.conv = {"user": args.user, "group": args.group}
+        elif args.user or args.group:
+            return "管理指定会话的插件需要超级用户权限！"
 
         result.update(plugin_manager.unblock_plugin(args.plugin, args.conv))
 
@@ -153,10 +155,7 @@ class Handle:
 
         for plugin, value in result.items():
             message += "\n"
-            if value:
-                message += f"插件 {plugin} 启用成功！"
-            else:
-                message += f"插件 {plugin} 不存在或已关闭编辑权限！"
+            message += f"插件 {plugin} 启用成功！" if value else f"插件 {plugin} 不存在或已关闭编辑权限！"
         return message
 
     # 以下功能尚未实现
